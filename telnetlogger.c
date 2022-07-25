@@ -1,36 +1,20 @@
 /******************************************************************************
-	TELNETLOGGER
-
-	A quick and dirty Telnet honeypot for catching Mirai bots.
-
-	Tips for reading the code:
-		- it runs on Windows, Linux, and Mac OS
-		- it's IPv6 and IPv4 enabled
-		- I deal with Telnet option negotiation with a state-machine
-
-	Contributions:
-		- Andrew Beard suggested CSV format, to make it more Splunk-able
-		- Stefan Laudemann pointed out flaw in send() on closed ports
-		  causing a signal.
-		- Stefan Laudemann pointed out flaw in pthread_create causing
-		  memory leak.
-
+ * 
+ * TELNETLOGGER
+ * 
+ * Implementation of a telnet honeypot. This version is based on the
+ * implementation of Robert D. Graham and is just slightly modified.
+ * 		https://github.com/robertdavidgraham/telnetlogger
+ * 
+ * Modifications:
+ *
+ *		* Removed Windows-components to reduce complexity
+ *		* Reduced to CSV-like output to STDOUT
+ *		* No timestamp in output
+ * 
 ******************************************************************************/
+
 #define _CRT_SECURE_NO_WARNINGS 1
-#if defined(WIN32)
-#include <WinSock2.h>
-#include <WS2tcpip.h>
-#include <intrin.h>
-#include <process.h>
-#define sleep(secs) Sleep(1000*(secs))
-#define WSA(err) (WSA##err)
-typedef CRITICAL_SECTION pthread_mutex_t;
-#define pthread_mutex_lock(p) EnterCriticalSection(p)
-#define pthread_mutex_unlock(p) LeaveCriticalSection(p)
-#define pthread_mutex_init(p,q) InitializeCriticalSection(p)
-#define pthread_create(handle,x,pfn,data) (*(handle)) = _beginthread(pfn,0,data)
-typedef uintptr_t pthread_t;
-#else
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -43,7 +27,6 @@ typedef uintptr_t pthread_t;
 #define WSAGetLastError() (errno)
 #define closesocket(fd) close(fd)
 #define WSA(err) (err)
-#endif
 #if defined(_MSC_VER)
 #pragma comment(lib, "ws2_32")
 #endif
@@ -69,9 +52,6 @@ pthread_mutex_t output;
 struct ThreadArgs {
 	pthread_t handle;
 	int fd;
-	FILE *fp_passwords;
-	FILE *fp_ips;
-	FILE *fp_csv;
 	struct sockaddr_in6 peer;
 	socklen_t peerlen;
 	char peername[256];
@@ -262,31 +242,17 @@ print_ip(FILE *fp, const char *hostname)
  * Create a CSV formatted line with all the information on one line.
  ******************************************************************************/
 void
-print_csv(FILE *fp, time_t now, const char *hostname,
+print_csv(FILE *fp, const char *hostname,
 	const char *login, int login_len,
 	const char *password, int password_len)
 {
-	struct tm *tm;
-	char str[128];
-
 	if (fp == NULL)
 		return;
-
-	tm = gmtime(&now);
-	if (tm == NULL) {
-		perror("gmtime");
-		return;
-	}
-
-	strftime(str, sizeof(str), "%Y-%m-%d %H:%M:%S", tm);
 
 	pthread_mutex_lock(&output);
 
 	/* time-integer, time-formatted, username, password*/
-	fprintf(fp, "%u,%s,%s,",
-		(unsigned)now,
-		str,
-		hostname);
+	fprintf(fp, "%s,", hostname);
 	print_string(fp, login, login_len);
 	fprintf(fp, ",");
 	print_string(fp, password, password_len);
@@ -456,22 +422,7 @@ void *handle_connection(void *v_args)
 #endif
 
 
-	/* Set receive timeout of 1 minute. Windows can go suck an egg by deciding
-	 * to be different here. */
-#ifdef WIN32
-	{
-		DWORD tv;
-		int err;
-
-		tv = 60000;
-
-		err = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (char*)&tv, sizeof(tv));
-		if (err) {
-			ERROR_MSG("setsockopt(SO_RECVTIMEO): %s\n",
-				error_msg(WSAGetLastError()));
-		}
-	}
-#else
+	/* Set receive timeout of 1 minute. */
 	{
 		struct timeval tv;
 		int err;
@@ -485,7 +436,6 @@ void *handle_connection(void *v_args)
 				error_msg(WSAGetLastError()));
 		}
 	}
-#endif
 
 
 	/* The initial hello, which also includes some basic negotiation.
@@ -514,10 +464,8 @@ again:
 	if (password_length <= 0)
 		goto error;
 
-	/* Print the resulting username/password combination */
-	print_passwords(args->fp_passwords, login, login_length, password, password_length);
-	print_ip(args->fp_ips, args->peername);
-	print_csv(args->fp_csv, time(0), args->peername, login, login_length, password, password_length);
+	/* Print the peering & login information */
+	print_csv(stdout, args->peername, login, login_length, password, password_length);
 
 	/* Print error and loop around to do it again */
 	if (state == 1)
@@ -545,9 +493,8 @@ error:
 /******************************************************************************
  ******************************************************************************/
 void
-daemon_thread(int port, FILE *fp_passwords, FILE *fp_ips, FILE *fp_csv)
+daemon_thread(int port)
 {
-
 	int fd;
 	
 	fd = create_ipv6_socket(port);
@@ -566,13 +513,10 @@ daemon_thread(int port, FILE *fp_passwords, FILE *fp_ips, FILE *fp_csv)
 			break;
 		}
 
-		/* Create new structure to hold per-thread-dat */
+		/* Create new structure to hold per-thread-data */
 		args = malloc(sizeof(*args));
 		memset(args, 0, sizeof(*args));
 		args->fd = newfd;
-		args->fp_passwords = fp_passwords;
-		args->fp_ips = fp_ips;
-		args->fp_csv = fp_csv;
 		args->peerlen = sizeof(args->peer);
 		getpeername(args->fd, (struct sockaddr*)&args->peer, &args->peerlen);
 		getnameinfo((struct sockaddr*)&args->peer, args->peerlen, args->peername, sizeof(args->peername), NULL, 0, NI_NUMERICHOST| NI_NUMERICSERV);
@@ -582,63 +526,15 @@ daemon_thread(int port, FILE *fp_passwords, FILE *fp_ips, FILE *fp_csv)
 
 		pthread_create(&args->handle, 0, handle_connection, args);
 
-#ifndef WIN32
 		/* clean up the thread handle, otherwise we have a small memory
 		 * leak of handles. Thanks to Stefan Laudemann for pointing
 		 * this out. I suspect it's more than just 8 bytes for the handle,
 		 * but that there are kernel resources that we'll run out of
 		 * too. */
 		pthread_detach(args->handle);
-#endif
 	}
 
 	closesocket(fd);
-}
-
-/******************************************************************************
-******************************************************************************/
-FILE *
-open_output(int *in_i, char *argv[], int argc)
-{
-	int i = *in_i;
-	const char *filename = NULL;
-
-	/* Allow either with/without space:
-	 *	-cfilename.txt
-	 * or
-	 *	-c filename.txt 
-	 */
-	if (argv[i][2] == '\0') {
-		i = ++(*in_i);
-		if (i >= argc) {
-			fprintf(stderr, "expected parameter after -%c\n", argv[i][1]);
-			exit(1);
-		}
-		filename = argv[i];
-	}
-	else
-		filename = argv[i] + 2;
-
-	/* If the filename is a dash, then redirect to console output*/
-	if (strcmp(filename, "-") == 0)
-		return stdout;
-
-	/* If the filename is "NULL", then don't output anything */
-	else if (strcmp(filename, "null") == 0)
-		return NULL;
-
-	/* Create a file to output to*/
-	else {
-		FILE *fp;
-		fp = fopen(filename, "wt");
-		if (fp == NULL) {
-			perror(filename);
-			exit(1);
-			return NULL;
-		}
-		else
-			return fp;
-	}
 }
 
 /******************************************************************************
@@ -646,23 +542,11 @@ open_output(int *in_i, char *argv[], int argc)
 int
 main(int argc, char *argv[])
 {
-	FILE *fp_passwords = stdout;
-	FILE *fp_ips = stdout;
-	FILE *fp_csv = NULL;
 	int i;
 	int port = 23;
 
-	/*
-	* One-time program startup stuff for legacy Windows.
-	*/
-#if defined(WIN32)
-	{WSADATA x; WSAStartup(0x101, &x);}
-#endif
-
 	pthread_mutex_init(&output, 0);
-
-	fprintf(stderr, "\n--- telnetlogger/0.2 ---\n");
-	fprintf(stderr, "https://github.com/robertdavidgraham/telnetlogger\n");
+	fprintf(stderr, "Started telnetlogger\n");
 
 	/* Read configuration parameters */
 	for (i = 1; i < argc; i++) {
@@ -671,15 +555,6 @@ main(int argc, char *argv[])
 			exit(1);
 		}
 		switch (argv[i][1]) {
-		case 'c':
-			fp_csv = open_output(&i, argv, argc);
-			break;
-		case 'p':
-			fp_passwords = open_output(&i, argv, argc);
-			break;
-		case 'i':
-			fp_ips = open_output(&i, argv, argc);
-			break;
 		case 'l':
 		{
 			char *arg;
@@ -702,13 +577,13 @@ main(int argc, char *argv[])
 		case 'h':
 		case '?':
 		case 'H':
-			fprintf(stderr, "usage:\n telnetlogger [-p passwords.txt] [-i ips.txt] [-c telnetlog.csv] [-l port]\n");
+			fprintf(stderr, "usage:\n telnetlogger [-l port]\n");
 			exit(1);
 			break;
 		}
 	}
 
-	daemon_thread(port, fp_passwords, fp_ips, fp_csv);
+	daemon_thread(port);
 
 	return 0;
 }
