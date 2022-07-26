@@ -1,0 +1,10 @@
+[Unit]
+Description=Telnet Honeypot Daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/telnetlogger
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
