@@ -61,9 +61,7 @@ struct ThreadArgs {
 /******************************************************************************
  * Translate sockets error codes to helpful text for printing
  ******************************************************************************/
-static const char *
-error_msg(unsigned err)
-{
+static const char* error_msg(unsigned err) {
 	static char buf[256];
 	switch (err) {
 	case WSA(ECONNRESET): return "TCP connection reset";
@@ -84,8 +82,7 @@ error_msg(unsigned err)
  * Print to stderr. Right now, it's just a wrapper aroun fprintf(stderr), but
  * I do it this way so I can later add different DEBUG levels.
  ******************************************************************************/
-int ERROR_MSG(const char *fmt, ...)
-{
+int ERROR_MSG(const char *fmt, ...) {
 	va_list marker;
 	va_start(marker, fmt);
 	vfprintf(stderr, fmt, marker);
@@ -99,9 +96,7 @@ int ERROR_MSG(const char *fmt, ...)
  * both versions simultaneously. This will inevitably fail on some system,
  * so eventually I'll have to write an IPv4 version of this function.
  ******************************************************************************/
-int
-create_ipv6_socket(int port)
-{
+int create_ipv6_socket(int port) {
 	int fd;
 	int err;
 	struct sockaddr_in6 localaddr;
@@ -127,7 +122,6 @@ create_ipv6_socket(int port)
 		}
 	}
 
-#ifndef WIN32
 	/* Reuse address */
 	{
 		int yes = 1;
@@ -139,7 +133,6 @@ create_ipv6_socket(int port)
 			return -1;
 		}
 	}
-#endif
 
 	/* Bind to local port. Again note that while I"m binding for IPv6, it's
 	 * also setting up a service for IPv4. */
@@ -173,9 +166,7 @@ create_ipv6_socket(int port)
  * entering bad passwords designed to hack the system (shell injection,
  * HTML injection, SQL injection).
  ******************************************************************************/
-void 
-print_string(FILE *fp, const char *str, int len)
-{
+void print_string(FILE *fp, const char *str, int len) {
 	int i;
 	for (i = 0; i < len; i++) {
 		char c = str[i];
@@ -241,11 +232,8 @@ print_ip(FILE *fp, const char *hostname)
 /******************************************************************************
  * Create a CSV formatted line with all the information on one line.
  ******************************************************************************/
-void
-print_csv(FILE *fp, const char *hostname,
-	const char *login, int login_len,
-	const char *password, int password_len)
-{
+void print_csv(FILE *fp, const char *hostname, const char *login, int login_len,
+	const char *password, int password_len) {
 	if (fp == NULL)
 		return;
 
@@ -268,9 +256,7 @@ print_csv(FILE *fp, const char *hostname,
  * we may also have to participate in some NVT option negotiation.
  * This is the function that reads a username or password.
  ******************************************************************************/
-int
-recv_nvt_line(int fd, char *buf, int sizeof_buf, int flags, int *in_state)
-{
+int recv_nvt_line(int fd, char *buf, int sizeof_buf, int flags, int *in_state) {
 	int offset = 0;
 	int state = *in_state;
 	int done = 0;
@@ -404,8 +390,7 @@ recv_nvt_line(int fd, char *buf, int sizeof_buf, int flags, int *in_state)
  * cleanup when the connection ends. We set a recv timeout so that the 
  * connection won't stay alive indefinitely.
  ******************************************************************************/
-void *handle_connection(void *v_args)
-{
+void *handle_connection(void *v_args) {
 	struct ThreadArgs *args = (struct ThreadArgs *)v_args;
 	int fd = args->fd;
 	char login[256];
@@ -492,9 +477,7 @@ error:
 
 /******************************************************************************
  ******************************************************************************/
-void
-daemon_thread(int port)
-{
+void daemon_thread(int port) {
 	int fd;
 	
 	fd = create_ipv6_socket(port);
@@ -539,9 +522,7 @@ daemon_thread(int port)
 
 /******************************************************************************
  ******************************************************************************/
-int
-main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
 	int i;
 	int port = 23;
 
