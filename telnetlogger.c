@@ -373,7 +373,7 @@ int recv_nvt_line(int fd, char *buf, int sizeof_buf, int flags, int *in_state) {
 			state = 0;
 			break;
 		default:
-			fprintf(stderr, "[internalo error: unknown state");
+			fprintf(stderr, "err,internal error,unknown state\n");
 			state = 0;
 			break;
 		}
@@ -505,7 +505,7 @@ void daemon_thread(int port) {
 		getnameinfo((struct sockaddr*)&args->peer, args->peerlen, args->peername, sizeof(args->peername), NULL, 0, NI_NUMERICHOST| NI_NUMERICSERV);
 		if (memcmp(args->peername, "::ffff:", 7) == 0)
 			memmove(args->peername, args->peername + 7, strlen(args->peername + 7) + 1);
-		fprintf(stderr, "[+] %s: connect\n", args->peername);
+		fprintf(stderr, "connect,%s\n", args->peername);
 
 		pthread_create(&args->handle, 0, handle_connection, args);
 
@@ -527,12 +527,11 @@ int main(int argc, char *argv[]) {
 	int port = 23;
 
 	pthread_mutex_init(&output, 0);
-	fprintf(stderr, "Started telnetlogger\n");
 
 	/* Read configuration parameters */
 	for (i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
-			fprintf(stderr, "unknown parameter: %s\n", argv[i]);
+			fprintf(stderr, "startup,unknown parameter: %s\n", argv[i]);
 			exit(1);
 		}
 		switch (argv[i][1]) {
@@ -543,13 +542,13 @@ int main(int argc, char *argv[]) {
 				arg = &argv[i][2];
 			} else {
 				if (++i >= argc) {
-					fprintf(stderr, "expected parameter after -%c\n", 'i');
+					fprintf(stderr, "startup,expected parameter after -%c\n", 'i');
 					exit(1);
 				}
 				arg = argv[i];
 			}
 			if (strtoul(arg, 0, 0) < 1 || strtoul(arg, 0, 0) > 65535) {
-				fprintf(stderr, "expected port number between 1..65535\n");
+				fprintf(stderr, "startup,expected port number between 1..65535\n");
 				exit(1);
 			}
 			port = strtoul(arg, 0, 0);
