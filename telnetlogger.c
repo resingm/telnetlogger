@@ -465,12 +465,11 @@ again:
 
 end:
 	closesocket(fd);
-	ERROR_MSG("[-] %s: close()\n", args->peername);
+	ERROR_MSG("close,%s\n", args->peername);
 	free(args);
 	return NULL;
 error:
-	ERROR_MSG("[-] %s: recv(): %s\n", args->peername,
-		error_msg(WSAGetLastError()));
+	ERROR_MSG("recv,%s,%s\n", args->peername, error_msg(WSAGetLastError()));
 	goto end;
 }
 
